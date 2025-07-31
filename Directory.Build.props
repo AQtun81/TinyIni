@@ -1,0 +1,22 @@
+<Project>
+  <PropertyGroup>
+    <BaseOutputPath>build\</BaseOutputPath>
+    <BaseIntermediateOutputPath>build\.cache\</BaseIntermediateOutputPath>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <AppendRuntimeIdentifierToOutputPath>false</AppendRuntimeIdentifierToOutputPath>
+    <AssemblyAttributesPath>$(BaseIntermediateOutputPath)AssemblyInfo.cs</AssemblyAttributesPath>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(Configuration)' == 'Debug'">
+    <OutputPath>$(BaseOutputPath)debug\</OutputPath>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(Configuration)' == 'Release'">
+    <OutputPath>$(BaseOutputPath)release\</OutputPath>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <PublishDir Condition="'$(RuntimeIdentifier)' != ''">$(BaseOutputPath)publish-$(RuntimeIdentifier)\</PublishDir>
+    <PublishDir Condition="'$(RuntimeIdentifier)' == ''">$(BaseOutputPath)publish\</PublishDir>
+  </PropertyGroup>
+</Project>
