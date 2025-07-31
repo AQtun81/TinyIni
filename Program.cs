@@ -50,6 +50,7 @@ public class TinyIniGenerator : IIncrementalGenerator
         public IndentationHelper() { }
     }
     
+    // todo extract a few select properties in a single struct once instead of indirectly calling this repeatably
     private static bool GetSymbolType(ISymbol symbol, out ITypeSymbol? result)
     {
         result = symbol switch
@@ -93,10 +94,10 @@ public class TinyIniGenerator : IIncrementalGenerator
             SpecialType.System_Single  => $"ParseFloat({input}, ref {output});",
             SpecialType.System_Double  => $"{output} = double.Parse({input});",
             SpecialType.System_Decimal => $"{output} = decimal.Parse({input});",
+            SpecialType.System_String  => $"ParseString({input}, ref {output});",
             SpecialType.None           => $"Enum.TryParse({input}, out {output});",
             _ => $"Unsupported special type: {result.SpecialType}"
         };
-        return true;
         return !value.StartsWith('U');
     }
     
@@ -190,7 +191,14 @@ public class TinyIniGenerator : IIncrementalGenerator
             {
                 if (member.Kind != SymbolKind.Field) continue;
                 if (IsStruct(member)) continue;
-                sb.AppendLine($"{ih.Pad}sb.AppendLine($\"{member.Name}={{data.{member.Name}}}\");");
+                if (GetSymbolType(member, out ITypeSymbol? result) && result.SpecialType == SpecialType.System_String)
+                {
+                    sb.AppendLine($"{ih.Pad}sb.AppendLine($\"{member.Name}=\\\"{{data.{member.Name}}}\\\"\");");
+                }
+                else
+                {
+                    sb.AppendLine($"{ih.Pad}sb.AppendLine($\"{member.Name}={{data.{member.Name}}}\");");
+                }
             }
             
             bool first = true;
@@ -217,7 +225,14 @@ public class TinyIniGenerator : IIncrementalGenerator
                 foreach (ISymbol nMember in nestedStruct.GetMembers())
                 {
                     if (nMember.Kind != SymbolKind.Field) continue;
-                    sb.AppendLine($"{ih.Pad}sb.AppendLine($\"{nMember.Name}={{data.{member.Name}.{nMember.Name}}}\");");
+                    if (GetSymbolType(nMember, out ITypeSymbol? result) && result.SpecialType == SpecialType.System_String)
+                    {
+                        sb.AppendLine($"{ih.Pad}sb.AppendLine($\"{nMember.Name}=\\\"{{data.{member.Name}.{nMember.Name}}}\\\"\");");
+                    }
+                    else
+                    {
+                        sb.AppendLine($"{ih.Pad}sb.AppendLine($\"{nMember.Name}={{data.{member.Name}.{nMember.Name}}}\");");
+                    }
                 }
             }
             sb.AppendLine("");
@@ -436,6 +451,18 @@ public class TinyIniGenerator : IIncrementalGenerator
                           }
                           
                           return float.TryParse(value2[..length], out outValue);
+                      }
+                  
+                      private static bool ParseString(in ReadOnlySpan<char> value, ref string outValue)
+                      {
+                          int first = value.IndexOf('"');
+                          if (first == -1) return false;
+                          first += 1;
+                          int next = value[first..].IndexOf('"');
+                          if (next == -1) return false;
+                          next += first;
+                          outValue = value[first..next].ToString();
+                          return true;
                       }
                   
                   """);
