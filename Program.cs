@@ -50,8 +50,7 @@ public class TinyIniGenerator : IIncrementalGenerator
         public IndentationHelper() { }
     }
     
-    // todo extract a few select properties in a single struct once instead of indirectly calling this repeatably
-    private static bool GetSymbolType(ISymbol symbol, out ITypeSymbol? result)
+    private static bool GetSymbolType(in ISymbol symbol, out ITypeSymbol? result)
     {
         result = symbol switch
         {
@@ -68,18 +67,39 @@ public class TinyIniGenerator : IIncrementalGenerator
         return result is not null;
     }
     
-    private static bool IsStruct(ISymbol symbol)
+    private struct SymbolInfo
     {
-        if (!GetSymbolType(symbol, out ITypeSymbol? result)) return false;
-        if (result!.SpecialType != SpecialType.None) return false;
-        return result.TypeKind == TypeKind.Struct;
+        public SpecialType SpecialType;
+        public bool IsStruct;
+        public bool IsEnum;
+        public bool IsValueType;
+        public ITypeSymbol? TypeSymbol;
     }
 
-    private static bool GetParser(ISymbol symbol, in string input, in string output, out string value)
+    private static SymbolInfo ProbeInfo(in ISymbol symbol)
+    {
+        SymbolInfo result = new();
+        if (!GetSymbolType(in symbol, out ITypeSymbol? typeSymbol))
+        {
+            result.SpecialType = SpecialType.None;
+            result.IsStruct = false;
+            result.IsEnum = false;
+            result.IsValueType = false;
+            result.TypeSymbol = null;
+            return result;
+        }
+        result.SpecialType = typeSymbol!.SpecialType;
+        result.IsStruct = typeSymbol!.SpecialType == SpecialType.None && typeSymbol!.TypeKind == TypeKind.Struct;
+        result.IsEnum = !result.IsStruct;
+        result.IsValueType = typeSymbol!.IsValueType;
+        result.TypeSymbol = typeSymbol;
+        return result;
+    }
+
+    private static bool GetParser(ref SymbolInfo symbol, in string input, in string output, out string value)
     {
         value = "Unsupported";
-        if (!GetSymbolType(symbol, out ITypeSymbol? result)) return false;
-        value = result!.SpecialType switch
+        value = symbol.SpecialType switch
         {
             SpecialType.System_Boolean => $"ParseBool({input}, ref {output});",
             SpecialType.System_Char    => $"{output} = char.Parse({input});",
@@ -96,7 +116,7 @@ public class TinyIniGenerator : IIncrementalGenerator
             SpecialType.System_Decimal => $"{output} = decimal.Parse({input});",
             SpecialType.System_String  => $"ParseString({input}, ref {output});",
             SpecialType.None           => $"Enum.TryParse({input}, out {output});",
-            _ => $"Unsupported special type: {result.SpecialType}"
+            _ => $"Unsupported special type: {symbol.SpecialType}"
         };
         return !value.StartsWith('U');
     }
@@ -178,7 +198,6 @@ public class TinyIniGenerator : IIncrementalGenerator
 
     private static void GenerateSavePerType(ref StringBuilder sb, ref List<INamedTypeSymbol> structs)
     {
-        int i = 0;
         foreach (INamedTypeSymbol structSymbol in structs)
         {
             sb.AppendLine("");
@@ -190,8 +209,9 @@ public class TinyIniGenerator : IIncrementalGenerator
             foreach (ISymbol member in symbols)
             {
                 if (member.Kind != SymbolKind.Field) continue;
-                if (IsStruct(member)) continue;
-                if (GetSymbolType(member, out ITypeSymbol? result) && result.SpecialType == SpecialType.System_String)
+                SymbolInfo memberInfo = ProbeInfo(member);
+                if (memberInfo.IsStruct) continue;
+                if (memberInfo.SpecialType == SpecialType.System_String)
                 {
                     sb.AppendLine($"{ih.Pad}sb.AppendLine($\"{member.Name}=\\\"{{data.{member.Name}}}\\\"\");");
                 }
@@ -201,31 +221,22 @@ public class TinyIniGenerator : IIncrementalGenerator
                 }
             }
             
-            bool first = true;
             foreach (ISymbol member in symbols)
             {
                 if (member.Kind != SymbolKind.Field) continue;
-                if (!IsStruct(member)) continue;
-                ITypeSymbol? memberType = member switch
-                {
-                    IFieldSymbol field => field.Type,
-                    IPropertySymbol property => property.Type,
-                    _ => null
-                };
-                if (memberType == null) continue;
-                if (!memberType.IsValueType) continue;
-                if (memberType is not INamedTypeSymbol { TypeKind: TypeKind.Struct } nestedStruct) continue;
-                if (!first)
-                {
-                    sb.AppendLine("");
-                    sb.AppendLine($"{ih.Pad}sb.AppendLine(\"\");");
-                }
-                first = false;
+                SymbolInfo memberInfo = ProbeInfo(member);
+                if (!memberInfo.IsStruct) continue;
+                if (memberInfo.TypeSymbol == null) continue;
+                if (!memberInfo.IsValueType) continue;
+                if (memberInfo.TypeSymbol is not INamedTypeSymbol { TypeKind: TypeKind.Struct } nestedStruct) continue;
+                sb.AppendLine("");
+                sb.AppendLine($"{ih.Pad}sb.AppendLine(\"\");");
                 sb.AppendLine($"{ih.Pad}sb.AppendLine(\"[{member.Name}]\");");
                 foreach (ISymbol nMember in nestedStruct.GetMembers())
                 {
                     if (nMember.Kind != SymbolKind.Field) continue;
-                    if (GetSymbolType(nMember, out ITypeSymbol? result) && result.SpecialType == SpecialType.System_String)
+                    SymbolInfo nMemberInfo = ProbeInfo(member);
+                    if (nMemberInfo.SpecialType == SpecialType.System_String)
                     {
                         sb.AppendLine($"{ih.Pad}sb.AppendLine($\"{nMember.Name}=\\\"{{data.{member.Name}.{nMember.Name}}}\\\"\");");
                     }
@@ -238,7 +249,6 @@ public class TinyIniGenerator : IIncrementalGenerator
             sb.AppendLine("");
             sb.AppendLine($"{ih.Pad}OverwriteData(sb, path);");
             sb.AppendLine(ih.Close);
-            i++;
         }
     }
     
@@ -247,7 +257,6 @@ public class TinyIniGenerator : IIncrementalGenerator
     
     private static void GenerateLoadPerType(ref StringBuilder sb, ref List<INamedTypeSymbol> structs)
     {
-        int i = 0;
         foreach (INamedTypeSymbol structSymbol in structs)
         {
             ImmutableArray<ISymbol> symbols = structSymbol.GetMembers();
@@ -310,8 +319,9 @@ public class TinyIniGenerator : IIncrementalGenerator
             foreach (ISymbol member in symbols)
             {
                 if (member.Kind != SymbolKind.Field) continue;
-                if (IsStruct(member)) continue;
-                if (!GetParser(member, "value", $"outData.{member.Name}", out string parser)) continue;
+                SymbolInfo memberInfo = ProbeInfo(member);
+                if (memberInfo.IsStruct) continue;
+                if (!GetParser(ref memberInfo, "value", $"outData.{member.Name}", out string parser)) continue;
                 sb.AppendLine($"{ih.Pad}case \"{member.Name}\":");
                 ih.Depth += 1;
                 sb.AppendLine($"{ih.Pad}{parser}");
@@ -325,16 +335,11 @@ public class TinyIniGenerator : IIncrementalGenerator
             foreach (ISymbol member in symbols)
             {
                 if (member.Kind != SymbolKind.Field) continue;
-                if (!IsStruct(member)) continue;
-                ITypeSymbol? memberType = member switch
-                {
-                    IFieldSymbol field => field.Type,
-                    IPropertySymbol property => property.Type,
-                    _ => null
-                };
-                if (memberType == null) continue;
-                if (!memberType.IsValueType) continue;
-                if (memberType is not INamedTypeSymbol { TypeKind: TypeKind.Struct } nestedStruct) continue;
+                SymbolInfo memberInfo = ProbeInfo(member);
+                if (!memberInfo.IsStruct) continue;
+                if (memberInfo.TypeSymbol == null) continue;
+                if (!memberInfo.IsValueType) continue;
+                if (memberInfo.TypeSymbol is not INamedTypeSymbol { TypeKind: TypeKind.Struct } nestedStruct) continue;
                 
                 sb.AppendLine($"{ih.Pad}case \"{member.Name}\":");
                 
@@ -344,7 +349,8 @@ public class TinyIniGenerator : IIncrementalGenerator
                 foreach (ISymbol nMember in nestedStruct.GetMembers())
                 {
                     if (nMember.Kind != SymbolKind.Field) continue;
-                    if (!GetParser(nMember, "value", $"outData.{member.Name}.{nMember.Name}", out string parser)) continue;
+                    SymbolInfo nMemberInfo = ProbeInfo(nMember);
+                    if (!GetParser(ref nMemberInfo, "value", $"outData.{member.Name}.{nMember.Name}", out string parser)) continue;
                     sb.AppendLine($"{ih.Pad}case \"{nMember.Name}\":");
                     ih.Depth += 1;
                     sb.AppendLine($"{ih.Pad}{parser}");
@@ -357,7 +363,6 @@ public class TinyIniGenerator : IIncrementalGenerator
             }
             sb.AppendLine(ih.Close);
             sb.AppendLine(ih.Close);
-            i++;
         }
     }
     
