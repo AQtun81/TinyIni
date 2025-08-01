@@ -200,10 +200,13 @@ public class TinyIniGenerator : IIncrementalGenerator
     {
         foreach (INamedTypeSymbol structSymbol in structs)
         {
+            int predictedSize = 0;
             sb.AppendLine("");
             sb.AppendLine($"{ih.Pad}public static void Save(in string path, in {structSymbol.ToDisplayString()} data)");
             sb.AppendLine(ih.Open);
-            sb.AppendLine($"{ih.Pad}StringBuilder sb = new(1024);");
+            sb.Append($"{ih.Pad}StringBuilder sb = new(");
+            int predictedSizePos = sb.Length;
+            sb.AppendLine(" + 64);");
             sb.AppendLine("");
             ImmutableArray<ISymbol> symbols = structSymbol.GetMembers();
             foreach (ISymbol member in symbols)
@@ -214,10 +217,12 @@ public class TinyIniGenerator : IIncrementalGenerator
                 if (memberInfo.SpecialType == SpecialType.System_String)
                 {
                     sb.AppendLine($"{ih.Pad}sb.AppendLine($\"{member.Name}=\\\"{{data.{member.Name}}}\\\"\");");
+                    predictedSize += member.Name.Length + 32;
                 }
                 else
                 {
                     sb.AppendLine($"{ih.Pad}sb.AppendLine($\"{member.Name}={{data.{member.Name}}}\");");
+                    predictedSize += member.Name.Length + 12;
                 }
             }
             
@@ -239,14 +244,17 @@ public class TinyIniGenerator : IIncrementalGenerator
                     if (nMemberInfo.SpecialType == SpecialType.System_String)
                     {
                         sb.AppendLine($"{ih.Pad}sb.AppendLine($\"{nMember.Name}=\\\"{{data.{member.Name}.{nMember.Name}}}\\\"\");");
+                        predictedSize += member.Name.Length * 2 + 24;
                     }
                     else
                     {
                         sb.AppendLine($"{ih.Pad}sb.AppendLine($\"{nMember.Name}={{data.{member.Name}.{nMember.Name}}}\");");
+                        predictedSize += member.Name.Length * 2 + 8;
                     }
                 }
             }
             sb.AppendLine("");
+            sb.Insert(predictedSizePos, predictedSize);
             sb.AppendLine($"{ih.Pad}OverwriteData(sb, path);");
             sb.AppendLine(ih.Close);
         }
