@@ -259,13 +259,13 @@ public class TinyIniGenerator : IIncrementalGenerator
             {
                 AppendInfo(ref sb, memberInfo);
                 sb.AppendLine($"{ih.Pad}sb.AppendLine($\"{member.Name}=\\\"{{data.{fieldBuilder}{member.Name}}}\\\"\");");
-                predictedSize += member.Name.Length + 32; // todo use builders for length predictions
+                predictedSize += fieldBuilder.Length + member.Name.Length + 32;
             }
             else
             {
                 AppendInfo(ref sb, memberInfo);
                 sb.AppendLine($"{ih.Pad}sb.AppendLine($\"{member.Name}={{data.{fieldBuilder}{member.Name}}}\");");
-                predictedSize += member.Name.Length + 12;
+                predictedSize += fieldBuilder.Length + member.Name.Length + 8;
             }
         }
 
