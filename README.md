@@ -1,16 +1,8 @@
 # Tiny Ini
-Is a small source generator which generates methods for serializing and deserializing structs. <br/>
-It is very simple with only 2 functions and a single attribute.
-### Add analyzer reference in your project
-```xml
-<ItemGroup>
-  <ProjectReference Include="..\TinyIni\TinyIni.csproj"
-                    OutputItemType="Analyzer"
-                    ReferenceOutputAssembly="false"/>
-</ItemGroup>
-```
+Is a small source generator which generates methods for serializing and deserializing structs.
 
-### Add `TinyIni.IniSerializable` attribute above any struct you wish to serialize
+
+### Serialization
 ```cs
 [TinyIni.IniSerializable]
 public struct Config
@@ -22,6 +14,15 @@ public struct Config
     Width = 1920,
     VSync = VSync.Enabled
   };
+
+  public Graphics Graphics = new()
+  {
+    MSAA = 16,
+    Advanced = new AdvancedGraphics
+    {
+      GraphicsAPI = GraphicsAPI.Vulkan
+    }
+  };
   public Input InputKeyboard = new()
   {
     JumpKey = 32
@@ -30,8 +31,24 @@ public struct Config
   {
     JumpKey = 16
   };
-  
+
   public Config() {}
+}
+```
+
+<details>
+<summary>[omitted for brevity]</summary>
+
+```cs
+public struct Graphics
+{
+  public byte MSAA;
+  public AdvancedGraphics Advanced;
+}
+
+public struct AdvancedGraphics
+{
+  public GraphicsAPI GraphicsAPI;
 }
 
 public struct Display
@@ -52,20 +69,20 @@ public enum VSync
   Disabled,
   Adaptive
 }
-```
-### Use the generated Load and Save methods
-```cs
-string exePath = $"{Path.GetDirectoryName(AppContext.BaseDirectory)}{Path.DirectorySeparatorChar}";
-// this will additionally create a new config if one isn't present
-TinyIni.Load($"{exePath}config.ini", ref config);
-if (config.Version != CURRENT_CONFIG_VERSION)
+
+public enum GraphicsAPI
 {
-  config.Version = CURRENT_CONFIG_VERSION;
-  // this will generate new fields and remove obsolete ones
-  TinyIni.Save($"{exePath}config.ini", in config);
+  Vulkan,
+  DirectX12
 }
 ```
-### This serialized struct from this example will output the following ini file
+
+</details>
+
+```cs
+TinyIni.Save("config.ini", in config);
+```
+<sub>config.ini</sub>
 ```ini
 Version=0
 
@@ -74,9 +91,76 @@ Width=1920
 Height=1080
 VSync=Enabled
 
+[Graphics]
+MSAA=16
+
+[Graphics/Advanced]
+GraphicsAPI=Vulkan
+
 [InputKeyboard]
 JumpKey=32
 
 [InputGamepad]
 JumpKey=16
 ```
+
+### Deserialization
+```cs
+TinyIni.Load("config.ini", ref config);
+```
+
+
+# Installation
+
+### Clone
+
+Clone this repository into your solution directory. </br>
+`git clone https://github.com/AQtun81/TinyIni`
+
+### Add analyzer reference in your project
+```xml
+<ItemGroup>
+  <ProjectReference Include="..\TinyIni\TinyIni.csproj"
+                    OutputItemType="Analyzer"
+                    ReferenceOutputAssembly="false"/>
+</ItemGroup>
+```
+
+### Compile your project
+
+You won't see IntelliSense for any generated code until the project is built at least once.
+
+### Add `[TinyIni.IniSerializable]` attribute above any struct you wish to serialize
+
+```cs
+[TinyIni.IniSerializable]
+public struct Config
+{
+  // ...
+```
+
+### Use the generated Load and Save methods
+```cs
+// this will additionally create a new file if one isn't already present
+TinyIni.Load($"config.ini", ref config);
+
+// this will generate new fields and remove obsolete ones
+TinyIni.Save($"config.ini", in config);
+```
+
+# FAQ
+### Unity support
+You'll have to do some additional steps in order to use Tiny Ini with Unity.
+
+1. `git clone https://github.com/AQtun81/TinyIni`
+2. Inside of `TinyIni.csproj` downgrade `Microsoft.CodeAnalysis.Common` and `Microsoft.CodeAnalysis.CSharp` to `4.3.0-3.final`
+3. Build the project for release `dotnet build -c release`
+4. Copy the dll file to somewhere inside of your `Assets` folder
+5. Click on the .dll file to open the Plugin Inspector window
+6. Uncheck `Any Platform`, `Editor` and `Standalone` checkmarks, under Asset Labels create and assign a new label called `RoslynAnalyzer`
+
+Refer to [Unity's documentation](https://docs.unity3d.com/Manual/create-source-generator.html) for more details.
+
+### Godot support
+Godot 4 C# projects use MSBuild so following the default instructions for C# projects will work. </br>
+Versions prior to that are not supported.
