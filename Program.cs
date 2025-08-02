@@ -1,4 +1,7 @@
-﻿using System.Collections.Immutable;
+﻿//#define TINY_INI_DEBUG
+
+using System.Collections.Immutable;
+using System.Diagnostics;
 using System.Text;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
@@ -89,11 +92,26 @@ public class TinyIniGenerator : IIncrementalGenerator
             return result;
         }
         result.SpecialType = typeSymbol!.SpecialType;
-        result.IsStruct = typeSymbol!.SpecialType == SpecialType.None && typeSymbol!.TypeKind == TypeKind.Struct;
-        result.IsEnum = !result.IsStruct;
-        result.IsValueType = typeSymbol!.IsValueType;
+        result.IsStruct = typeSymbol.SpecialType == SpecialType.None && typeSymbol.TypeKind == TypeKind.Struct;
+        // todo replace string comparison
+        result.IsEnum = !result.IsStruct && typeSymbol.BaseType!.ToString() == "System.Enum";
+        result.IsValueType = typeSymbol.IsValueType;
         result.TypeSymbol = typeSymbol;
         return result;
+    }
+    
+    [Conditional("TINY_INI_DEBUG")]
+    private static void AppendInfo(ref StringBuilder sb, SymbolInfo info)
+    {
+        #if TINY_INI_DEBUG
+        sb.AppendLine($"{ih.Pad}// IsStruct: {info.IsStruct}");
+        sb.AppendLine($"{ih.Pad}// SpecialType: {info.SpecialType}");
+        sb.AppendLine($"{ih.Pad}// IsValueType: {info.IsValueType}");
+        sb.AppendLine($"{ih.Pad}// TypeSymbol: {info.TypeSymbol}");
+        sb.AppendLine($"{ih.Pad}// TypeKind: {info.TypeSymbol?.TypeKind}");
+        sb.AppendLine($"{ih.Pad}// BaseType: {info.TypeSymbol?.BaseType}");
+        sb.AppendLine($"{ih.Pad}// IsEnum: {info.IsEnum}");
+        #endif
     }
 
     private static bool GetParser(ref SymbolInfo symbol, in string input, in string output, out string value)
@@ -153,7 +171,7 @@ public class TinyIniGenerator : IIncrementalGenerator
             {
                 context.ReportDiagnostic(Diagnostic.Create(
                     new DiagnosticDescriptor(
-                        "INI001",
+                        "[TinyIni]",
                         "Invalid accessibility",
                         $"Struct '{symbol.ToDisplayString()}' must be public to use [IniSerializable]",
                         "Design",
@@ -173,7 +191,9 @@ public class TinyIniGenerator : IIncrementalGenerator
 
     private static string GenerateSource(ref List<INamedTypeSymbol> structs)
     {
-        StringBuilder sb = new(4096);
+        StringBuilder sb = new(32768);
+        StringBuilder tempBuilder = new(1024);
+        StringBuilder sectionBuilder = new(1024);
 
         sb.AppendLine("using System;");
         sb.AppendLine("using System.Diagnostics;");
@@ -185,8 +205,8 @@ public class TinyIniGenerator : IIncrementalGenerator
         sb.AppendLine(ih.Open);
         sb.AppendLine($"{ih.Pad}[AttributeUsage(AttributeTargets.Struct)]");
         sb.AppendLine($"{ih.Pad}public class IniSerializable : Attribute {{ }}");
-        GenerateSavePerType(ref sb, ref structs);
-        GenerateLoadPerType(ref sb, ref structs);
+        GenerateSavePerType(ref sb, ref tempBuilder, ref sectionBuilder, ref structs);
+        GenerateLoadPerType(ref sb, ref tempBuilder, ref sectionBuilder, ref structs);
         AppendConstantMethods(ref sb);
         sb.AppendLine(ih.Close);
 
@@ -195,8 +215,8 @@ public class TinyIniGenerator : IIncrementalGenerator
     
     /* SAVING
     ------------------------------------------------------------------------------- */
-
-    private static void GenerateSavePerType(ref StringBuilder sb, ref List<INamedTypeSymbol> structs)
+    
+    private static void GenerateSavePerType(ref StringBuilder sb, ref StringBuilder fieldBuilder, ref StringBuilder sectionBuilder, ref List<INamedTypeSymbol> structs)
     {
         foreach (INamedTypeSymbol structSymbol in structs)
         {
@@ -208,66 +228,71 @@ public class TinyIniGenerator : IIncrementalGenerator
             int predictedSizePos = sb.Length;
             sb.AppendLine(" + 64);");
             sb.AppendLine("");
-            ImmutableArray<ISymbol> symbols = structSymbol.GetMembers();
-            foreach (ISymbol member in symbols)
-            {
-                if (member.Kind != SymbolKind.Field) continue;
-                SymbolInfo memberInfo = ProbeInfo(member);
-                if (memberInfo.IsStruct) continue;
-                if (memberInfo.SpecialType == SpecialType.System_String)
-                {
-                    sb.AppendLine($"{ih.Pad}sb.AppendLine($\"{member.Name}=\\\"{{data.{member.Name}}}\\\"\");");
-                    predictedSize += member.Name.Length + 32;
-                }
-                else
-                {
-                    sb.AppendLine($"{ih.Pad}sb.AppendLine($\"{member.Name}={{data.{member.Name}}}\");");
-                    predictedSize += member.Name.Length + 12;
-                }
-            }
-            
-            foreach (ISymbol member in symbols)
-            {
-                if (member.Kind != SymbolKind.Field) continue;
-                SymbolInfo memberInfo = ProbeInfo(member);
-                if (!memberInfo.IsStruct) continue;
-                if (memberInfo.TypeSymbol == null) continue;
-                if (!memberInfo.IsValueType) continue;
-                if (memberInfo.TypeSymbol is not INamedTypeSymbol { TypeKind: TypeKind.Struct } nestedStruct) continue;
-                sb.AppendLine("");
-                sb.AppendLine($"{ih.Pad}sb.AppendLine(\"\");");
-                sb.AppendLine($"{ih.Pad}sb.AppendLine(\"[{member.Name}]\");");
-                foreach (ISymbol nMember in nestedStruct.GetMembers())
-                {
-                    if (nMember.Kind != SymbolKind.Field) continue;
-                    SymbolInfo nMemberInfo = ProbeInfo(member);
-                    if (nMemberInfo.SpecialType == SpecialType.System_String)
-                    {
-                        sb.AppendLine($"{ih.Pad}sb.AppendLine($\"{nMember.Name}=\\\"{{data.{member.Name}.{nMember.Name}}}\\\"\");");
-                        predictedSize += member.Name.Length * 2 + 24;
-                    }
-                    else
-                    {
-                        sb.AppendLine($"{ih.Pad}sb.AppendLine($\"{nMember.Name}={{data.{member.Name}.{nMember.Name}}}\");");
-                        predictedSize += member.Name.Length * 2 + 8;
-                    }
-                }
-            }
+            GenerateSavePerTypeInnerFunction(ref sb, ref fieldBuilder, ref sectionBuilder, in structSymbol, ref predictedSize);
             sb.AppendLine("");
             sb.Insert(predictedSizePos, predictedSize);
             sb.AppendLine($"{ih.Pad}OverwriteData(sb, path);");
             sb.AppendLine(ih.Close);
         }
     }
+
+    private struct SymbolInfoPair
+    {
+        public ISymbol Symbol;
+        public SymbolInfo Info;
+    }
+
+    private static void GenerateSavePerTypeInnerFunction(ref StringBuilder sb, ref StringBuilder fieldBuilder, ref StringBuilder sectionBuilder, in INamedTypeSymbol structSymbol, ref int predictedSize)
+    {
+        List<SymbolInfoPair> structSymbols = new(10);
+        ImmutableArray<ISymbol> symbols = structSymbol.GetMembers();
+        foreach (ISymbol member in symbols)
+        {
+            if (member.Kind != SymbolKind.Field) continue;
+            SymbolInfo memberInfo = ProbeInfo(member);
+            if (memberInfo.IsStruct)
+            {
+                structSymbols.Add(new SymbolInfoPair {Info = memberInfo, Symbol = member});
+                continue;
+            }
+            if (memberInfo.SpecialType == SpecialType.System_String)
+            {
+                AppendInfo(ref sb, memberInfo);
+                sb.AppendLine($"{ih.Pad}sb.AppendLine($\"{member.Name}=\\\"{{data.{fieldBuilder}{member.Name}}}\\\"\");");
+                predictedSize += member.Name.Length + 32; // todo use builders for length predictions
+            }
+            else
+            {
+                AppendInfo(ref sb, memberInfo);
+                sb.AppendLine($"{ih.Pad}sb.AppendLine($\"{member.Name}={{data.{fieldBuilder}{member.Name}}}\");");
+                predictedSize += member.Name.Length + 12;
+            }
+        }
+
+        foreach (SymbolInfoPair member in structSymbols)
+        {
+            if (member.Info.TypeSymbol is not INamedTypeSymbol { TypeKind: TypeKind.Struct } nestedStruct) continue;
+            int pos = fieldBuilder.Length;
+            int sPos = sectionBuilder.Length;
+            fieldBuilder.Append($"{member.Symbol.Name}.");
+            if (sPos > 0) sectionBuilder.Append('/');
+            sectionBuilder.Append($"{member.Symbol.Name}");
+            sb.AppendLine("");
+            sb.AppendLine($"{ih.Pad}sb.AppendLine(\"\");");
+            sb.AppendLine($"{ih.Pad}sb.AppendLine(\"[{sectionBuilder}]\");");
+            GenerateSavePerTypeInnerFunction(ref sb, ref fieldBuilder, ref sectionBuilder, in nestedStruct, ref predictedSize);
+            fieldBuilder.Length = pos;
+            sectionBuilder.Length = sPos;
+        }
+    }
     
     /* LOADING
     ------------------------------------------------------------------------------- */
     
-    private static void GenerateLoadPerType(ref StringBuilder sb, ref List<INamedTypeSymbol> structs)
+    private static void GenerateLoadPerType(ref StringBuilder sb, ref StringBuilder fieldBuilder, ref StringBuilder sectionBuilder, ref List<INamedTypeSymbol> structs)
     {
         foreach (INamedTypeSymbol structSymbol in structs)
         {
-            ImmutableArray<ISymbol> symbols = structSymbol.GetMembers();
             sb.AppendLine("");
             sb.AppendLine($"{ih.Pad}/// <returns>true when loaded an existing file successfully, false when the file did not exist and a new one was created instead.</returns>");
             sb.AppendLine($"{ih.Pad}public static bool Load(in string path, ref {structSymbol.ToDisplayString()} data)");
@@ -321,56 +346,58 @@ public class TinyIniGenerator : IIncrementalGenerator
             sb.AppendLine(ih.Open);
             sb.AppendLine($"{ih.Pad}case \"\":");
             ih.Depth += 1;
+
+            GenerateLoadPerTypeInnerFunction(ref sb, ref fieldBuilder, ref sectionBuilder, in structSymbol);
             
-            sb.AppendLine($"{ih.Pad}switch (key)");
-            sb.AppendLine(ih.Open);
-            foreach (ISymbol member in symbols)
-            {
-                if (member.Kind != SymbolKind.Field) continue;
-                SymbolInfo memberInfo = ProbeInfo(member);
-                if (memberInfo.IsStruct) continue;
-                if (!GetParser(ref memberInfo, "value", $"outData.{member.Name}", out string parser)) continue;
-                sb.AppendLine($"{ih.Pad}case \"{member.Name}\":");
-                ih.Depth += 1;
-                sb.AppendLine($"{ih.Pad}{parser}");
-                sb.AppendLine($"{ih.Pad}break;");
-                ih.Depth -= 1;
-            }
+            ih.Depth -= 1;
             sb.AppendLine(ih.Close);
+            sb.AppendLine(ih.Close);
+        }
+    }
+    
+    private static void GenerateLoadPerTypeInnerFunction(ref StringBuilder sb, ref StringBuilder fieldBuilder, ref StringBuilder sectionBuilder, in INamedTypeSymbol structSymbol)
+    {
+        List<SymbolInfoPair> structSymbols = new(10);
+        ImmutableArray<ISymbol> symbols = structSymbol.GetMembers();
+        
+        sb.AppendLine($"{ih.Pad}switch (key)");
+        sb.AppendLine(ih.Open);
+        foreach (ISymbol member in symbols)
+        {
+            if (member.Kind != SymbolKind.Field) continue;
+            SymbolInfo memberInfo = ProbeInfo(member);
+            if (memberInfo.IsStruct)
+            {
+                structSymbols.Add(new SymbolInfoPair {Info = memberInfo, Symbol = member});
+                continue;
+            }
+            if (!GetParser(ref memberInfo, "value", $"outData.{fieldBuilder}{member.Name}", out string parser)) continue;
+            AppendInfo(ref sb, memberInfo);
+            sb.AppendLine($"{ih.Pad}case \"{member.Name}\":");
+            ih.Depth += 1;
+            sb.AppendLine($"{ih.Pad}{parser}");
             sb.AppendLine($"{ih.Pad}break;");
             ih.Depth -= 1;
+        }
+        sb.AppendLine(ih.Close);
+        sb.AppendLine($"{ih.Pad}break;");
 
-            foreach (ISymbol member in symbols)
-            {
-                if (member.Kind != SymbolKind.Field) continue;
-                SymbolInfo memberInfo = ProbeInfo(member);
-                if (!memberInfo.IsStruct) continue;
-                if (memberInfo.TypeSymbol == null) continue;
-                if (!memberInfo.IsValueType) continue;
-                if (memberInfo.TypeSymbol is not INamedTypeSymbol { TypeKind: TypeKind.Struct } nestedStruct) continue;
+        foreach (SymbolInfoPair member in structSymbols)
+        {
+            if (member.Info.TypeSymbol is not INamedTypeSymbol { TypeKind: TypeKind.Struct } nestedStruct) continue;
+            int pos = fieldBuilder.Length;
+            int sPos = sectionBuilder.Length;
+            fieldBuilder.Append($"{member.Symbol.Name}.");
+            if (sPos > 0) sectionBuilder.Append('/');
+            sectionBuilder.Append($"{member.Symbol.Name}");
+            ih.Depth -= 1;
+            sb.AppendLine($"{ih.Pad}case \"{sectionBuilder}\":");
+            ih.Depth += 1;
+            
+            GenerateLoadPerTypeInnerFunction(ref sb, ref fieldBuilder, ref sectionBuilder, in nestedStruct);
                 
-                sb.AppendLine($"{ih.Pad}case \"{member.Name}\":");
-                
-                ih.Depth += 1;
-                sb.AppendLine($"{ih.Pad}switch (key)");
-                sb.AppendLine(ih.Open);
-                foreach (ISymbol nMember in nestedStruct.GetMembers())
-                {
-                    if (nMember.Kind != SymbolKind.Field) continue;
-                    SymbolInfo nMemberInfo = ProbeInfo(nMember);
-                    if (!GetParser(ref nMemberInfo, "value", $"outData.{member.Name}.{nMember.Name}", out string parser)) continue;
-                    sb.AppendLine($"{ih.Pad}case \"{nMember.Name}\":");
-                    ih.Depth += 1;
-                    sb.AppendLine($"{ih.Pad}{parser}");
-                    sb.AppendLine($"{ih.Pad}break;");
-                    ih.Depth -= 1;
-                }
-                sb.AppendLine(ih.Close);
-                sb.AppendLine($"{ih.Pad}break;");
-                ih.Depth -= 1;
-            }
-            sb.AppendLine(ih.Close);
-            sb.AppendLine(ih.Close);
+            fieldBuilder.Length = pos;
+            sectionBuilder.Length = sPos;
         }
     }
     
@@ -477,7 +504,7 @@ public class TinyIniGenerator : IIncrementalGenerator
                           outValue = value[first..next].ToString();
                           return true;
                       }
-                  
+
                   """);
     }
 }
