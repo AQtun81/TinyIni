@@ -1,5 +1,6 @@
 ﻿//#define TINY_INI_DEBUG
 
+using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Diagnostics;
 using System.Text;
@@ -15,7 +16,7 @@ public class TinyIniGenerator : IIncrementalGenerator
     private struct IndentationHelper
     {
         private static readonly StringBuilder sb = new(64);
-        public ushort Depth = 0;
+        public ushort Depth;
 
         public string Pad
         {
@@ -49,8 +50,6 @@ public class TinyIniGenerator : IIncrementalGenerator
                 return $"{Pad}}}";
             }
         }
-
-        public IndentationHelper() { }
     }
     
     private static bool GetSymbolType(in ISymbol symbol, out ITypeSymbol? result)
@@ -141,7 +140,7 @@ public class TinyIniGenerator : IIncrementalGenerator
     {
         IncrementalValuesProvider<StructDeclarationSyntax> structDeclarations = context.SyntaxProvider
             .CreateSyntaxProvider(
-                predicate: static (s, _) => s is StructDeclarationSyntax { AttributeLists.Count: > 0 },
+                predicate: static (s, _) => s is StructDeclarationSyntax { AttributeLists: { Count: > 0 } },
                 transform: static (ctx, _) => (StructDeclarationSyntax)ctx.Node)
             .Where(static s => s != null);
         IncrementalValueProvider<(Compilation Left, ImmutableArray<StructDeclarationSyntax> Right)> compilationAndStructs = context.CompilationProvider.Combine(structDeclarations.Collect());
@@ -160,8 +159,13 @@ public class TinyIniGenerator : IIncrementalGenerator
         {
             SemanticModel model = compilation.GetSemanticModel(structDecl.SyntaxTree);
             if (model.GetDeclaredSymbol(structDecl) is not INamedTypeSymbol symbol) continue;
-            bool hasAttribute = symbol.GetAttributes().Any(attr =>
-                attr.AttributeClass?.Name == "IniSerializable");
+            bool hasAttribute = false;
+            foreach (AttributeData? attr in symbol.GetAttributes())
+            {
+                if (attr.AttributeClass?.Name != "IniSerializable") continue;
+                hasAttribute = true;
+                break;
+            }
 
             if (!hasAttribute) continue;
 
@@ -404,105 +408,103 @@ public class TinyIniGenerator : IIncrementalGenerator
     
     private static void AppendConstantMethods(ref StringBuilder sb)
     {
-        sb.Append("""
-                  
-                      private static async void OverwriteData(StringBuilder sb, string path)
-                      {
-                          try
-                          {
-                              PopulatePath(path);
-                              byte[] encoded = Encoding.UTF8.GetBytes(sb.ToString());
-                              await using FileStream sourceStream = File.Open(path, FileMode.OpenOrCreate);
-                              sourceStream.SetLength(0);
-                              await sourceStream.WriteAsync(encoded, 0, encoded.Length);
-                          }
-                          catch (Exception e)
-                          {
-                              Console.WriteLine($"[TinyIni] Failed to write data to file {path}\n{e}");
-                          }
-                      }
-                      
-                      private static void PopulatePath(string path)
-                      {
-                          string? directoryPath = Path.GetDirectoryName(path);
-                          if (string.IsNullOrEmpty(directoryPath)) return;
-                          if (!Directory.Exists(directoryPath)) Directory.CreateDirectory(directoryPath);
-                      }
-                      
-                      // ReSharper disable twice RedundantAssignment
-                      [MethodImpl(MethodImplOptions.AggressiveInlining)]
-                      private static void GetKeyValue(in ReadOnlySpan<char> line, ref ReadOnlySpan<char> outKey, ref ReadOnlySpan<char> outValue)
-                      {
-                          int equalsPos = line.IndexOf('=');
-                          outKey = line[..equalsPos].Trim();
-                          outValue = line[(equalsPos + 1)..].Trim();
-                      }
-                  
-                      private static bool ParseBool(in ReadOnlySpan<char> value, ref bool outValue)
-                      {
-                          const string TRUE_CHARACTERS = "1TtYy";
-                          const string FALSE_CHARACTERS = "0FfNn";
-                          
-                          foreach (char character in TRUE_CHARACTERS)
-                          {
-                              if (value[0] != character) continue;
-                              outValue = true;
-                              return true;
-                          }
-                          
-                          foreach (char character in FALSE_CHARACTERS)
-                          {
-                              if (value[0] != character) continue;
-                              outValue = false;
-                              return true;
-                          }
-                          
-                          return false;
-                      }
-                      
-                      private static bool ParseFloat(in ReadOnlySpan<char> value, ref float outValue)
-                      {
-                          if (float.TryParse(value, out outValue)) return true;
-                      
-                          Span<char> value2 = stackalloc char[value.Length];
-                          int length = 0;
-                          int pointIndex = 0;
-                          
-                          for (int i = value.Length - 1; i >= 0; i--)
-                          {
-                              if (value[i] is not ('.' or ',')) continue;
-                              pointIndex = i;
-                              break;
-                          }
-                      
-                          for (int i = 0; i < value.Length; i++)
-                          {
-                              if (i == pointIndex)
-                              {
-                                  value2[length] = '.';
-                                  length += 1;
-                                  continue;
-                              }
-                              if (value[i] is '.' or ',' or >= 'A' and <= 'z') continue;
-                              value2[length] = value[i];
-                              length += 1;
-                          }
-                          
-                          return float.TryParse(value2[..length], out outValue);
-                      }
-                  
-                      private static bool ParseString(in ReadOnlySpan<char> value, ref string outValue)
-                      {
-                          int first = value.IndexOf('"');
-                          if (first == -1) return false;
-                          first += 1;
-                          int next = value[first..].IndexOf('"');
-                          if (next == -1) return false;
-                          next += first;
-                          outValue = value[first..next].ToString();
-                          return true;
-                      }
+        sb.Append(@"
+    private static async void OverwriteData(StringBuilder sb, string path)
+    {
+        try
+        {
+            PopulatePath(path);
+            byte[] encoded = Encoding.UTF8.GetBytes(sb.ToString());
+            await using FileStream sourceStream = File.Open(path, FileMode.OpenOrCreate);
+            sourceStream.SetLength(0);
+            await sourceStream.WriteAsync(encoded, 0, encoded.Length);
+        }
+        catch (Exception e)
+        {
+            Console.WriteLine($""[TinyIni] Failed to write data to file {path}\n{e}"");
+        }
+    }
+    
+    private static void PopulatePath(string path)
+    {
+        string? directoryPath = Path.GetDirectoryName(path);
+        if (string.IsNullOrEmpty(directoryPath)) return;
+        if (!Directory.Exists(directoryPath)) Directory.CreateDirectory(directoryPath);
+    }
+    
+    // ReSharper disable twice RedundantAssignment
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static void GetKeyValue(in ReadOnlySpan<char> line, ref ReadOnlySpan<char> outKey, ref ReadOnlySpan<char> outValue)
+    {
+        int equalsPos = line.IndexOf('=');
+        outKey = line[..equalsPos].Trim();
+        outValue = line[(equalsPos + 1)..].Trim();
+    }
 
-                  """);
+    private static bool ParseBool(in ReadOnlySpan<char> value, ref bool outValue)
+    {
+        const string TRUE_CHARACTERS = ""1TtYy"";
+        const string FALSE_CHARACTERS = ""0FfNn"";
+        
+        foreach (char character in TRUE_CHARACTERS)
+        {
+            if (value[0] != character) continue;
+            outValue = true;
+            return true;
+        }
+        
+        foreach (char character in FALSE_CHARACTERS)
+        {
+            if (value[0] != character) continue;
+            outValue = false;
+            return true;
+        }
+        
+        return false;
+    }
+    
+    private static bool ParseFloat(in ReadOnlySpan<char> value, ref float outValue)
+    {
+        if (float.TryParse(value, out outValue)) return true;
+    
+        Span<char> value2 = stackalloc char[value.Length];
+        int length = 0;
+        int pointIndex = 0;
+        
+        for (int i = value.Length - 1; i >= 0; i--)
+        {
+            if (value[i] is not ('.' or ',')) continue;
+            pointIndex = i;
+            break;
+        }
+    
+        for (int i = 0; i < value.Length; i++)
+        {
+            if (i == pointIndex)
+            {
+                value2[length] = '.';
+                length += 1;
+                continue;
+            }
+            if (value[i] is '.' or ',' or >= 'A' and <= 'z') continue;
+            value2[length] = value[i];
+            length += 1;
+        }
+        
+        return float.TryParse(value2[..length], out outValue);
+    }
+
+    private static bool ParseString(in ReadOnlySpan<char> value, ref string outValue)
+    {
+        int first = value.IndexOf('""');
+        if (first == -1) return false;
+        first += 1;
+        int next = value[first..].IndexOf('""');
+        if (next == -1) return false;
+        next += first;
+        outValue = value[first..next].ToString();
+        return true;
+    }
+");
     }
 }
