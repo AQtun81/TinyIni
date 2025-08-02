@@ -93,8 +93,7 @@ public class TinyIniGenerator : IIncrementalGenerator
         }
         result.SpecialType = typeSymbol!.SpecialType;
         result.IsStruct = typeSymbol.SpecialType == SpecialType.None && typeSymbol.TypeKind == TypeKind.Struct;
-        // todo replace string comparison
-        result.IsEnum = !result.IsStruct && typeSymbol.BaseType!.ToString() == "System.Enum";
+        result.IsEnum = !result.IsStruct && typeSymbol.BaseType?.SpecialType == SpecialType.System_Enum;
         result.IsValueType = typeSymbol.IsValueType;
         result.TypeSymbol = typeSymbol;
         return result;
