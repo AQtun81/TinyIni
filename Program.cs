@@ -115,7 +115,6 @@ public class TinyIniGenerator : IIncrementalGenerator
 
     private static bool GetParser(ref SymbolInfo symbol, in string input, in string output, out string value)
     {
-        value = "Unsupported";
         value = symbol.SpecialType switch
         {
             SpecialType.System_Boolean => $"ParseBool({input}, ref {output});",
@@ -133,9 +132,9 @@ public class TinyIniGenerator : IIncrementalGenerator
             SpecialType.System_Decimal => $"{output} = decimal.Parse({input});",
             SpecialType.System_String  => $"ParseString({input}, ref {output});",
             SpecialType.None           => $"Enum.TryParse({input}, out {output});",
-            _ => $"Unsupported special type: {symbol.SpecialType}"
+            _ => ""
         };
-        return !value.StartsWith('U');
+        return value.Length != 0;
     }
     
     public void Initialize(IncrementalGeneratorInitializationContext context)
