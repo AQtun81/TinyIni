@@ -117,18 +117,18 @@ public class TinyIniGenerator : IIncrementalGenerator
         value = symbol.SpecialType switch
         {
             SpecialType.System_Boolean => $"ParseBool({input}, ref {output});",
-            SpecialType.System_Char    => $"{output} = char.Parse({input});",
-            SpecialType.System_SByte   => $"{output} = sbyte.Parse({input});",
-            SpecialType.System_Byte    => $"{output} = byte.Parse({input});",
-            SpecialType.System_Int16   => $"{output} = short.Parse({input});",
-            SpecialType.System_UInt16  => $"{output} = ushort.Parse({input});",
-            SpecialType.System_Int32   => $"{output} = int.Parse({input});",
-            SpecialType.System_UInt32  => $"{output} = uint.Parse({input});",
-            SpecialType.System_Int64   => $"{output} = long.Parse({input});",
-            SpecialType.System_UInt64  => $"{output} = ulong.Parse({input});",
+            SpecialType.System_Char    => $"ParseChar({input}, ref {output});",
+            SpecialType.System_SByte   => $"ParseInteger({input}, ref {output});",
+            SpecialType.System_Byte    => $"ParseUnsignedInteger({input}, ref {output});",
+            SpecialType.System_Int16   => $"ParseInteger({input}, ref {output});",
+            SpecialType.System_UInt16  => $"ParseUnsignedInteger({input}, ref {output});",
+            SpecialType.System_Int32   => $"ParseInteger({input}, ref {output});",
+            SpecialType.System_UInt32  => $"ParseUnsignedInteger({input}, ref {output});",
+            SpecialType.System_Int64   => $"ParseInteger({input}, ref {output});",
+            SpecialType.System_UInt64  => $"ParseUnsignedInteger({input}, ref {output});",
             SpecialType.System_Single  => $"ParseFloat({input}, ref {output});",
-            SpecialType.System_Double  => $"{output} = double.Parse({input});",
-            SpecialType.System_Decimal => $"{output} = decimal.Parse({input});",
+            SpecialType.System_Double  => $"ParseFloat({input}, ref {output});",
+            SpecialType.System_Decimal => $"ParseFloat({input}, ref {output});",
             SpecialType.System_String  => $"ParseString({input}, ref {output});",
             SpecialType.None           => $"Enum.TryParse({input}, out {output});",
             _ => ""
@@ -443,6 +443,7 @@ public class TinyIniGenerator : IIncrementalGenerator
 
     private static bool ParseBool(in ReadOnlySpan<char> value, ref bool outValue)
     {
+        if (value.Length <= 0) return false;
         const string TRUE_CHARACTERS = ""1TtYy"";
         const string FALSE_CHARACTERS = ""0FfNn"";
         
@@ -462,49 +463,144 @@ public class TinyIniGenerator : IIncrementalGenerator
         
         return false;
     }
-    
-    private static bool ParseFloat(in ReadOnlySpan<char> value, ref float outValue)
+
+    private static bool ParseString(in ReadOnlySpan<char> value, ref string outValue)
     {
-        if (float.TryParse(value, out outValue)) return true;
+        if (value.Length <= 0) return false;
+        int first = value.IndexOf('""');
+        if (first == -1) return false;
+        first += 1;
+        int next = value[first..].LastIndexOf('""');
+        if (next == -1) return false;
+        next += first;
+        outValue = value[first..next].ToString();
+        return true;
+    }
+
+    private static bool ParseChar(in ReadOnlySpan<char> value, ref char outValue)
+    {
+        if (value.Length <= 0) return false;
+        outValue = value[0];
+        return true;
+    }
+
+    private static bool ParseInteger(in ReadOnlySpan<char> value, ref long outValue)
+    {
+        if (long.TryParse(value, out outValue)) return true;
+        if (value.Length <= 0) return false;
+        
+        Span<char> stripped = stackalloc char[value.Length];
+        int strippedPos = 0;
+        int startIndex = 0;
+        if (value[0] == '-')
+        {
+            startIndex = 1;
+            stripped[0] = '-';
+            strippedPos = 1;
+        }
+
+        for (int i = startIndex; i < value.Length; i++)
+        {
+            ref readonly char character = ref value[i];
+            if (character is < '0' or > '9') continue;
+            stripped[strippedPos] = character;
+            strippedPos += 1;
+        }
+        
+        return long.TryParse(stripped, out outValue);
+    }
+
+    private static bool ParseUnsignedInteger(in ReadOnlySpan<char> value, ref ulong outValue)
+    {
+        if (ulong.TryParse(value, out outValue)) return true;
+        if (value.Length <= 0) return false;
+        
+        Span<char> stripped = stackalloc char[value.Length];
+        int strippedPos = 0;
+
+        foreach (char character in value)
+        {
+            if (character is < '0' or > '9') continue;
+            stripped[strippedPos] = character;
+            strippedPos += 1;
+        }
+        
+        return ulong.TryParse(stripped, out outValue);
+    }
+");
+        AppendFloatMethod(ref sb, "float");
+        AppendFloatMethod(ref sb, "double");
+        AppendFloatMethod(ref sb, "decimal");
+        AppendIntegerMethod(ref sb, "int");
+        AppendIntegerMethod(ref sb, "short");
+        AppendIntegerMethod(ref sb, "sbyte");
+        AppendUnsignedIntegerMethod(ref sb, "uint");
+        AppendUnsignedIntegerMethod(ref sb, "ushort");
+        AppendUnsignedIntegerMethod(ref sb, "byte");
+    }
+
+    private static void AppendFloatMethod(ref StringBuilder sb, string type)
+    {
+        sb.Append($@"
+    private static bool ParseFloat(in ReadOnlySpan<char> value, ref {type} outValue)
+    {{
+        if (value.Length <= 0) return false;
+        if ({type}.TryParse(value, out outValue)) return true;
     
         Span<char> value2 = stackalloc char[value.Length];
         int length = 0;
         int pointIndex = 0;
         
         for (int i = value.Length - 1; i >= 0; i--)
-        {
+        {{
             if (value[i] is not ('.' or ',')) continue;
             pointIndex = i;
             break;
-        }
+        }}
     
         for (int i = 0; i < value.Length; i++)
-        {
+        {{
             if (i == pointIndex)
-            {
+            {{
                 value2[length] = '.';
                 length += 1;
                 continue;
-            }
+            }}
             if (value[i] is '.' or ',' or >= 'A' and <= 'z') continue;
             value2[length] = value[i];
             length += 1;
-        }
+        }}
         
-        return float.TryParse(value2[..length], out outValue);
+        return {type}.TryParse(value2[..length], out outValue);
+    }}
+");
     }
 
-    private static bool ParseString(in ReadOnlySpan<char> value, ref string outValue)
+    private static void AppendIntegerMethod(ref StringBuilder sb, string type)
     {
-        int first = value.IndexOf('""');
-        if (first == -1) return false;
-        first += 1;
-        int next = value[first..].IndexOf('""');
-        if (next == -1) return false;
-        next += first;
-        outValue = value[first..next].ToString();
+        sb.Append($@"
+    public static bool ParseInteger(in ReadOnlySpan<char> value, ref {type} outValue)
+    {{
+        long temp = outValue;
+        bool success = ParseInteger(in value, ref temp);
+        if (!success) return false;
+        outValue = ({type})long.Clamp(temp, {type}.MinValue, {type}.MaxValue);
         return true;
+    }}
+");
     }
+
+    private static void AppendUnsignedIntegerMethod(ref StringBuilder sb, string type)
+    {
+        sb.Append($@"
+    public static bool ParseUnsignedInteger(in ReadOnlySpan<char> value, ref {type} outValue)
+    {{
+        ulong temp = outValue;
+        bool success = ParseUnsignedInteger(in value, ref temp);
+        if (!success) return false;
+        outValue = ({type})ulong.Clamp(temp, {type}.MinValue, {type}.MaxValue);
+        return true;
+    }}
 ");
     }
 }
