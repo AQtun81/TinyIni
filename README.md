@@ -154,10 +154,11 @@ You'll have to do some additional steps in order to use Tiny Ini with Unity.
 
 1. `git clone https://github.com/AQtun81/TinyIni`
 2. Inside of `TinyIni.csproj` downgrade `Microsoft.CodeAnalysis.Common` and `Microsoft.CodeAnalysis.CSharp` to `4.3.0-3.final`
-3. Build the project for release `dotnet build -c release`
-4. Copy the dll file to somewhere inside of your `Assets` folder
-5. Click on the .dll file to open the Plugin Inspector window
-6. Uncheck `Any Platform`, `Editor` and `Standalone` checkmarks, under Asset Labels create and assign a new label called `RoslynAnalyzer`
+3. Uncomment `//#define TINY_INI_COMPATIBILITY` inside of `Program.cs` to enable support for older versions of C#
+4. Build the project for release `dotnet build -c release`
+5. Copy the dll file to somewhere inside of your `Assets` folder
+6. Click on the .dll file to open the Plugin Inspector window
+7. Uncheck `Any Platform`, `Editor` and `Standalone` checkmarks, under Asset Labels create and assign a new label called `RoslynAnalyzer`
 
 Refer to [Unity's documentation](https://docs.unity3d.com/Manual/create-source-generator.html) for more details.
 

@@ -1,4 +1,5 @@
 ﻿//#define TINY_INI_DEBUG
+//#define TINY_INI_COMPATIBILITY
 
 using System.Collections.Generic;
 using System.Collections.Immutable;
@@ -200,6 +201,7 @@ public class TinyIniGenerator : IIncrementalGenerator
         sb.AppendLine("using System;");
         sb.AppendLine("using System.Diagnostics;");
         sb.AppendLine("using System.Text;");
+        sb.AppendLine("using System.IO;");
         sb.AppendLine("using System.Runtime.CompilerServices;");
         sb.AppendLine("");
         
@@ -344,15 +346,22 @@ public class TinyIniGenerator : IIncrementalGenerator
             sb.AppendLine("");
             sb.AppendLine($"{ih.Pad}private static void AssignKeyValue(ref {structSymbol.ToDisplayString()} outData, in ReadOnlySpan<char> section, in ReadOnlySpan<char> key, in ReadOnlySpan<char> value)");
             sb.AppendLine(ih.Open);
+            #if !TINY_INI_COMPATIBILITY
             sb.AppendLine($"{ih.Pad}switch (section)");
             sb.AppendLine(ih.Open);
             sb.AppendLine($"{ih.Pad}case \"\":");
             ih.Depth += 1;
+            #else // COMPATIBILITY
+            sb.AppendLine($"{ih.Pad}if (section.IsEmpty)");
+            sb.AppendLine(ih.Open);
+            #endif
 
             GenerateLoadPerTypeInnerFunction(ref sb, ref fieldBuilder, ref sectionBuilder, in structSymbol);
             
+            #if !TINY_INI_COMPATIBILITY
             ih.Depth -= 1;
             sb.AppendLine(ih.Close);
+            #endif
             sb.AppendLine(ih.Close);
         }
     }
@@ -362,6 +371,7 @@ public class TinyIniGenerator : IIncrementalGenerator
         List<SymbolInfoPair> structSymbols = new(10);
         ImmutableArray<ISymbol> symbols = structSymbol.GetMembers();
         
+        #if !TINY_INI_COMPATIBILITY
         sb.AppendLine($"{ih.Pad}switch (key)");
         sb.AppendLine(ih.Open);
         foreach (ISymbol member in symbols)
@@ -401,6 +411,43 @@ public class TinyIniGenerator : IIncrementalGenerator
             fieldBuilder.Length = pos;
             sectionBuilder.Length = sPos;
         }
+        #else // COMPATIBILITY
+        foreach (ISymbol member in symbols)
+        {
+            if (member.Kind != SymbolKind.Field) continue;
+            SymbolInfo memberInfo = ProbeInfo(member);
+            if (memberInfo.IsStruct)
+            {
+                structSymbols.Add(new SymbolInfoPair {Info = memberInfo, Symbol = member});
+                continue;
+            }
+            if (!GetParser(ref memberInfo, "value", $"outData.{fieldBuilder}{member.Name}", out string parser)) continue;
+            AppendInfo(ref sb, memberInfo);
+            sb.AppendLine($"{ih.Pad}if (key.SequenceEqual(\"{member.Name}\".AsSpan()))");
+            sb.AppendLine(ih.Open);
+            sb.AppendLine($"{ih.Pad}{parser}");
+            sb.AppendLine($"{ih.Pad}return;");
+            sb.AppendLine(ih.Close);
+        }
+        sb.AppendLine(ih.Close);
+
+        foreach (SymbolInfoPair member in structSymbols)
+        {
+            if (member.Info.TypeSymbol is not INamedTypeSymbol { TypeKind: TypeKind.Struct } nestedStruct) continue;
+            int pos = fieldBuilder.Length;
+            int sPos = sectionBuilder.Length;
+            fieldBuilder.Append($"{member.Symbol.Name}.");
+            if (sPos > 0) sectionBuilder.Append('/');
+            sectionBuilder.Append($"{member.Symbol.Name}");
+            sb.AppendLine($"{ih.Pad}if (section.SequenceEqual(\"{sectionBuilder}\".AsSpan()))");
+            sb.AppendLine(ih.Open);
+            
+            GenerateLoadPerTypeInnerFunction(ref sb, ref fieldBuilder, ref sectionBuilder, in nestedStruct);
+                
+            fieldBuilder.Length = pos;
+            sectionBuilder.Length = sPos;
+        }
+        #endif
     }
     
     /* SHARED
