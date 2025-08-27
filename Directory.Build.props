@@ -5,18 +5,24 @@
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
     <AppendRuntimeIdentifierToOutputPath>false</AppendRuntimeIdentifierToOutputPath>
     <AssemblyAttributesPath>$(BaseIntermediateOutputPath)AssemblyInfo.cs</AssemblyAttributesPath>
+    <IntermediateOutputPath>$(BaseIntermediateOutputPath)$(TargetFramework)\</IntermediateOutputPath>
+    <AssemblyAttributesPath>$(IntermediateOutputPath)AssemblyInfo.cs</AssemblyAttributesPath>
   </PropertyGroup>
 
+  <Target Name="EnsureIntermediateOutputPath" BeforeTargets="GenerateSourceLink;CoreCompile">
+    <MakeDir Directories="$(IntermediateOutputPath)" />
+  </Target>
+
   <PropertyGroup Condition="'$(Configuration)' == 'Debug'">
-    <OutputPath>$(BaseOutputPath)debug\</OutputPath>
+    <OutputPath>$(BaseOutputPath)debug-$(TargetFramework)\</OutputPath>
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(Configuration)' == 'Release'">
-    <OutputPath>$(BaseOutputPath)release\</OutputPath>
+    <OutputPath>$(BaseOutputPath)release-$(TargetFramework)\</OutputPath>
   </PropertyGroup>
 
   <PropertyGroup>
-    <PublishDir Condition="'$(RuntimeIdentifier)' != ''">$(BaseOutputPath)publish-$(RuntimeIdentifier)\</PublishDir>
-    <PublishDir Condition="'$(RuntimeIdentifier)' == ''">$(BaseOutputPath)publish\</PublishDir>
+    <PublishDir Condition="'$(RuntimeIdentifier)' != ''">$(BaseOutputPath)publish-$(TargetFramework)-$(RuntimeIdentifier)\</PublishDir>
+    <PublishDir Condition="'$(RuntimeIdentifier)' == ''">$(BaseOutputPath)publish-$(TargetFramework)\</PublishDir>
   </PropertyGroup>
 </Project>
