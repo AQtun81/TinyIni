@@ -591,7 +591,7 @@ public class TinyIniGenerator : IIncrementalGenerator
     private static void AppendIntegerMethod(ref StringBuilder sb, string type)
     {
         sb.Append($@"
-    public static bool ParseInteger(in ReadOnlySpan<char> value, ref {type} outValue)
+    private static bool ParseInteger(in ReadOnlySpan<char> value, ref {type} outValue)
     {{
         long temp = outValue;
         bool success = ParseInteger(in value, ref temp);
@@ -605,7 +605,7 @@ public class TinyIniGenerator : IIncrementalGenerator
     private static void AppendUnsignedIntegerMethod(ref StringBuilder sb, string type)
     {
         sb.Append($@"
-    public static bool ParseUnsignedInteger(in ReadOnlySpan<char> value, ref {type} outValue)
+    private static bool ParseUnsignedInteger(in ReadOnlySpan<char> value, ref {type} outValue)
     {{
         ulong temp = outValue;
         bool success = ParseUnsignedInteger(in value, ref temp);

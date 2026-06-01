@@ -4,7 +4,7 @@
     <PackageId>TinyIni</PackageId>
     <Authors>AQtun</Authors>
     <PackageTags>ini serialization deserialization</PackageTags>
-    <Version>1.0.0</Version>
+    <Version>1.0.1</Version>
     <RepositoryType>git</RepositoryType>
     <RepositoryUrl>https://github.com/AQtun81/tinyini</RepositoryUrl>
     <PackageRequireLicenseAcceptance>true</PackageRequireLicenseAcceptance>
