@@ -16,22 +16,10 @@ public class TinyIniGenerator : IIncrementalGenerator
     
     private struct IndentationHelper
     {
-        private static readonly StringBuilder sb = new(64);
         public ushort Depth;
 
-        public string Pad
-        {
-            get
-            {
-                sb.Clear();
-                for (int i = 0; i < Depth; i++)
-                {
-                    sb.Append("    ");
-                }
-                return sb.ToString();
-            }
-        }
-        
+        public string Pad => new(' ', Depth * 4);
+
         public string Open
         {
             get
@@ -41,7 +29,6 @@ public class TinyIniGenerator : IIncrementalGenerator
                 return result;
             }
         }
-        
         
         public string Close
         {
@@ -235,7 +222,9 @@ public class TinyIniGenerator : IIncrementalGenerator
             GenerateSavePerTypeInnerFunction(ref sb, ref fieldBuilder, ref sectionBuilder, in structSymbol, ref predictedSize);
             sb.AppendLine("");
             sb.Insert(predictedSizePos, predictedSize);
-            sb.AppendLine($"{ih.Pad}OverwriteData(sb, path);");
+            sb.AppendLine($"{ih.Pad}string? directoryPath = Path.GetDirectoryName(path);");
+            sb.AppendLine($"{ih.Pad}if (!string.IsNullOrEmpty(directoryPath)) Directory.CreateDirectory(directoryPath);");
+            sb.AppendLine($"{ih.Pad}File.WriteAllText(path, sb.ToString());");
             sb.AppendLine(ih.Close);
         }
     }
@@ -456,30 +445,6 @@ public class TinyIniGenerator : IIncrementalGenerator
     private static void AppendConstantMethods(ref StringBuilder sb)
     {
         sb.Append(@"
-    private static async void OverwriteData(StringBuilder sb, string path)
-    {
-        try
-        {
-            PopulatePath(path);
-            byte[] encoded = Encoding.UTF8.GetBytes(sb.ToString());
-            await using FileStream sourceStream = File.Open(path, FileMode.OpenOrCreate);
-            sourceStream.SetLength(0);
-            await sourceStream.WriteAsync(encoded, 0, encoded.Length);
-        }
-        catch (Exception e)
-        {
-            Console.WriteLine($""[TinyIni] Failed to write data to file {path}\n{e}"");
-        }
-    }
-    
-    private static void PopulatePath(string path)
-    {
-        string? directoryPath = Path.GetDirectoryName(path);
-        if (string.IsNullOrEmpty(directoryPath)) return;
-        if (!Directory.Exists(directoryPath)) Directory.CreateDirectory(directoryPath);
-    }
-    
-    // ReSharper disable twice RedundantAssignment
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static void GetKeyValue(in ReadOnlySpan<char> line, ref ReadOnlySpan<char> outKey, ref ReadOnlySpan<char> outValue)
     {

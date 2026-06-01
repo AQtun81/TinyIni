@@ -1,0 +1,30 @@
+name: NuGet Publish
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version'
+        required: true
+
+jobs:
+  publish-nuget:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code with submodules
+      uses: actions/checkout@v4
+      with:
+        submodules: recursive
+        
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: 8.0.x
+      
+    - name: Push to NuGet
+      shell: pwsh
+      run: |
+        dotnet restore
+        dotnet pack -c Release -p:PackageVersion=${{ github.event.inputs.version }} --output nupkg
+        dotnet nuget push nupkg/*.nupkg --api-key ${{ secrets.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json

@@ -112,12 +112,16 @@ TinyIni.Load("config.ini", ref config);
 
 # Installation
 
-### Clone
+### Install through NuGet
+
+`dotnet add package TinyIni`
+
+### Local install
 
 Clone this repository into your solution directory. </br>
-`git clone https://github.com/AQtun81/TinyIni`
+`git clone https://github.com/AQtun81/TinyIni` </br>
 
-### Add analyzer reference in your project
+**Add analyzer reference in your project**
 ```xml
 <ItemGroup>
   <ProjectReference Include="..\TinyIni\TinyIni.csproj"
