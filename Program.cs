@@ -290,7 +290,7 @@ public class TinyIniGenerator : IIncrementalGenerator
             sb.AppendLine($"{ih.Pad}/// <returns>true when loaded an existing file successfully, false when the file did not exist and a new one was created instead.</returns>");
             sb.AppendLine($"{ih.Pad}public static bool Load(in string path, ref {structSymbol.ToDisplayString()} data)");
             sb.AppendLine(ih.Open);
-            sb.AppendLine($"{ih.Pad}if (!Directory.Exists(Path.GetDirectoryName(path)) || !File.Exists(path))");
+            sb.AppendLine($"{ih.Pad}if (!File.Exists(path))");
             sb.AppendLine(ih.Open);
             sb.AppendLine($"{ih.Pad}#if DEBUG");
             sb.AppendLine($"{ih.Pad}Console.WriteLine($\"[TinyIni] File \\\"{{path}}\\\" does not exist, creating a new one\");");
