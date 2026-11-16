@@ -222,9 +222,11 @@ public class TinyIniGenerator : IIncrementalGenerator
             GenerateSavePerTypeInnerFunction(ref sb, ref fieldBuilder, ref sectionBuilder, in structSymbol, ref predictedSize);
             sb.AppendLine("");
             sb.Insert(predictedSizePos, predictedSize);
+            sb.AppendLine($"{ih.Pad}#nullable enable");
             sb.AppendLine($"{ih.Pad}string? directoryPath = Path.GetDirectoryName(path);");
             sb.AppendLine($"{ih.Pad}if (!string.IsNullOrEmpty(directoryPath)) Directory.CreateDirectory(directoryPath);");
             sb.AppendLine($"{ih.Pad}File.WriteAllText(path, sb.ToString());");
+            sb.AppendLine($"{ih.Pad}#nullable restore");
             sb.AppendLine(ih.Close);
         }
     }
@@ -338,6 +340,7 @@ public class TinyIniGenerator : IIncrementalGenerator
             #if !TINY_INI_COMPATIBILITY
             sb.AppendLine($"{ih.Pad}switch (section)");
             sb.AppendLine(ih.Open);
+            int restorePoint = sb.Length;
             sb.AppendLine($"{ih.Pad}case \"\":");
             ih.Depth += 1;
             #else // COMPATIBILITY
@@ -345,7 +348,7 @@ public class TinyIniGenerator : IIncrementalGenerator
             sb.AppendLine(ih.Open);
             #endif
 
-            GenerateLoadPerTypeInnerFunction(ref sb, ref fieldBuilder, ref sectionBuilder, in structSymbol);
+            GenerateLoadPerTypeInnerFunction(ref sb, ref fieldBuilder, ref sectionBuilder, in structSymbol, restorePoint);
             
             #if !TINY_INI_COMPATIBILITY
             ih.Depth -= 1;
@@ -355,12 +358,13 @@ public class TinyIniGenerator : IIncrementalGenerator
         }
     }
     
-    private static void GenerateLoadPerTypeInnerFunction(ref StringBuilder sb, ref StringBuilder fieldBuilder, ref StringBuilder sectionBuilder, in INamedTypeSymbol structSymbol)
+    private static void GenerateLoadPerTypeInnerFunction(ref StringBuilder sb, ref StringBuilder fieldBuilder, ref StringBuilder sectionBuilder, in INamedTypeSymbol structSymbol, int restorePoint)
     {
         List<SymbolInfoPair> structSymbols = new(10);
         ImmutableArray<ISymbol> symbols = structSymbol.GetMembers();
         
         #if !TINY_INI_COMPATIBILITY
+        bool shouldRestore = true;
         sb.AppendLine($"{ih.Pad}switch (key)");
         sb.AppendLine(ih.Open);
         foreach (ISymbol member in symbols)
@@ -373,6 +377,7 @@ public class TinyIniGenerator : IIncrementalGenerator
                 continue;
             }
             if (!GetParser(ref memberInfo, "value", $"outData.{fieldBuilder}{member.Name}", out string parser)) continue;
+            shouldRestore = false;
             AppendInfo(ref sb, memberInfo);
             sb.AppendLine($"{ih.Pad}case \"{member.Name}\":");
             ih.Depth += 1;
@@ -382,6 +387,7 @@ public class TinyIniGenerator : IIncrementalGenerator
         }
         sb.AppendLine(ih.Close);
         sb.AppendLine($"{ih.Pad}break;");
+        if (shouldRestore) sb.Length = restorePoint; // avoids creating an empty switch block
 
         foreach (SymbolInfoPair member in structSymbols)
         {
@@ -392,10 +398,11 @@ public class TinyIniGenerator : IIncrementalGenerator
             if (sPos > 0) sectionBuilder.Append('/');
             sectionBuilder.Append($"{member.Symbol.Name}");
             ih.Depth -= 1;
+            restorePoint = sb.Length;
             sb.AppendLine($"{ih.Pad}case \"{sectionBuilder}\":");
             ih.Depth += 1;
             
-            GenerateLoadPerTypeInnerFunction(ref sb, ref fieldBuilder, ref sectionBuilder, in nestedStruct);
+            GenerateLoadPerTypeInnerFunction(ref sb, ref fieldBuilder, ref sectionBuilder, in nestedStruct, restorePoint);
                 
             fieldBuilder.Length = pos;
             sectionBuilder.Length = sPos;
