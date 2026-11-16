@@ -1,4 +1,4 @@
-name: NuGet Publish
+name: Publish Package
 
 on:
   workflow_dispatch:
@@ -8,8 +8,11 @@ on:
         required: true
 
 jobs:
-  publish-nuget:
+  publish-package:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write # for the GitHub release upload
+      id-token: write # for NuGet's Trusted Publishing
     
     steps:
     - name: Checkout code with submodules
@@ -20,11 +23,20 @@ jobs:
     - name: Setup .NET
       uses: actions/setup-dotnet@v4
       with:
-        dotnet-version: 8.0.x
+        dotnet-version: 10.0.x
+
+    - name: NuGet login
+      uses: NuGet/login@v1
+      id: login
+      with:
+        user: ${{ secrets.NUGET_USER }}
       
-    - name: Push to NuGet
+    - name: Push Package
       shell: pwsh
       run: |
         dotnet restore
         dotnet pack -c Release -p:PackageVersion=${{ github.event.inputs.version }} --output nupkg
-        dotnet nuget push nupkg/*.nupkg --api-key ${{ secrets.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json
+        dotnet nuget push nupkg/*.nupkg --api-key ${{ steps.login.outputs.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json
+        gh release create ${{ github.event.inputs.version }} nupkg/*.nupkg
+      env:
+        GH_TOKEN: ${{ github.token }}
