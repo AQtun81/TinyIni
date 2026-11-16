@@ -2,10 +2,20 @@
 Is a small source generator which generates methods for serializing and deserializing structs.
 
 
-### Serialization
+### (De)Serialization
+Add `[TinyIni.IniSerializable]` attribute above any public struct that you wish to serialize.
 ```cs
 [TinyIni.IniSerializable]
 public struct Config
+{
+```
+
+<details>
+<summary>[see the full example struct]</summary>
+
+```cs
+[TinyIni.IniSerializable]
+public struct Config()
 {
   public int Version = 0;
   public Display Display = new()
@@ -31,15 +41,8 @@ public struct Config
   {
     JumpKey = 16
   };
-
-  public Config() {}
 }
-```
 
-<details>
-<summary>[omitted for brevity]</summary>
-
-```cs
 public struct Graphics
 {
   public byte MSAA;
@@ -79,9 +82,12 @@ public enum GraphicsAPI
 
 </details>
 
+Use the generated Save and Load methods to serialize or deserialize.
 ```cs
 TinyIni.Save("config.ini", in config);
+TinyIni.Load("config.ini", ref config);
 ```
+Which would generate the following in this case:<br>
 <sub>config.ini</sub>
 ```ini
 Version=0
@@ -103,12 +109,6 @@ JumpKey=32
 [InputGamepad]
 JumpKey=16
 ```
-
-### Deserialization
-```cs
-TinyIni.Load("config.ini", ref config);
-```
-
 
 # Installation
 
@@ -133,24 +133,6 @@ Clone this repository into your solution directory. </br>
 ### Compile your project
 
 You won't see IntelliSense for any generated code until the project is built at least once.
-
-### Add `[TinyIni.IniSerializable]` attribute above any struct you wish to serialize
-
-```cs
-[TinyIni.IniSerializable]
-public struct Config
-{
-  // ...
-```
-
-### Use the generated Load and Save methods
-```cs
-// this will additionally create a new file if one isn't already present
-TinyIni.Load($"config.ini", ref config);
-
-// this will generate new fields and remove obsolete ones
-TinyIni.Save($"config.ini", in config);
-```
 
 # FAQ
 ### Unity support
